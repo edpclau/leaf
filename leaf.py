@@ -27,6 +27,9 @@ from time import sleep
 import shap
 from fastprogress.fastprogress import master_bar, progress_bar
 
+import warnings
+warnings.filterwarnings("ignore", message='y_pred contains classes not in y_true')
+
 
 
 
@@ -158,8 +161,8 @@ def eval_whitebox_classifier(R, g, EX, StdX, NormV, x0, label_x0, bb_classifier,
         # print(sklearn.metrics.confusion_matrix(BBCLS1, WBCLS1), wb_name)
 
         if precision_recalls:
-            R.wb_precision_x1 = precision_score(BBCLS1, WBCLS1)
-            R.wb_recall_x1 = recall_score(BBCLS1, WBCLS1)
+            R.wb_precision_x1 = precision_score(BBCLS1, WBCLS1, zero_division=0)
+            R.wb_recall_x1 = recall_score(BBCLS1, WBCLS1, zero_division=0)
 
         # R.wb_fidelity_R2 = g.score(SNX0, BBY0)
         # R.wb_prescriptivity_R2 = g.score(SNX1, BBY1)
@@ -202,6 +205,8 @@ class LEAF:
         
         elif self.explainer == 'LinearExplainer':
             self.SHAPEXPL = shap.LinearExplainer(self.bb_classifier, shap.maskers.Independent(self.X, len(self.X)))
+        else:
+            raise Exception("Only KernelExplainer, TreeExplainer, and LinearExplainer are supported") 
         
 
 
