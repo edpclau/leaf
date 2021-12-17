@@ -161,8 +161,8 @@ def eval_whitebox_classifier(R, g, EX, StdX, NormV, x0, label_x0, bb_classifier,
         # print(sklearn.metrics.confusion_matrix(BBCLS1, WBCLS1), wb_name)
 
         if precision_recalls:
-            R.wb_precision_x1 = precision_score(BBCLS1, WBCLS1, zero_division=0)
-            R.wb_recall_x1 = recall_score(BBCLS1, WBCLS1, zero_division=0)
+            R.wb_precision_x1 = precision_score(BBCLS1, WBCLS1, zero_division=1)
+            R.wb_recall_x1 = recall_score(BBCLS1, WBCLS1, zero_division=1)
 
         # R.wb_fidelity_R2 = g.score(SNX0, BBY0)
         # R.wb_prescriptivity_R2 = g.score(SNX1, BBY1)
