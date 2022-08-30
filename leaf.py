@@ -2,7 +2,7 @@
 
 from ipywidgets import IntProgress, Textarea, HTML, HBox, Label
 from IPython.display import display
-import tabulate
+# import tabulate
 import matplotlib.colors as mc
 import colorsys
 import warnings, importlib, copy, random, mock, os, math, ast, sys, re, itertools, time, datetime
@@ -22,7 +22,7 @@ from scipy.spatial.distance import pdist, cdist
 from imblearn.over_sampling import SMOTE
 from collections import Counter
 import scipy.stats
-from termcolor import colored
+# from termcolor import colored
 from time import sleep
 import shap
 from fastprogress.fastprogress import master_bar, progress_bar
@@ -187,7 +187,7 @@ def hinge_loss(x):
 ###########################################################################################
 
 class LEAF:
-    def __init__(self, bb_classifier, X, Y, class_names, explanation_samples=5000, explainer = 'KernelExplainer'):
+    def __init__(self, bb_classifier, X, Y, class_names, explanation_samples=5000, explainer = shap.explainers.Permutation):
         self.bb_classifier = bb_classifier
         self.EX, self.StdX = np.mean(X), np.array(np.std(X, axis=0, ddof=0))
         self.X = X
@@ -196,25 +196,18 @@ class LEAF:
         self.F = X.shape[1] # number of features
         self.explanation_samples = explanation_samples
         self.explainer = explainer
-
-        # SHAP Kernel
-        if self.explainer == 'KernelExplainer':
-            self.SHAPEXPL = shap.KernelExplainer(self.bb_classifier.predict_proba, shap.kmeans(self.X, 10))
-        elif self.explainer == 'TreeExplainer':
-            self.SHAPEXPL = shap.TreeExplainer(self.bb_classifier)
-        
-        elif self.explainer == 'LinearExplainer':
-            self.SHAPEXPL = shap.LinearExplainer(self.bb_classifier, shap.maskers.Independent(self.X, len(self.X)))
+        #Explainer
+        if explainer != shap.explainers.Tree or explainer != shap.explainers.Linear:
+        # #Build Explanation
+            self.SHAPEXPL = explainer(bb_classifier.predict, X)
         else:
-            raise Exception("Only KernelExplainer, TreeExplainer, and LinearExplainer are supported") 
-        
-
-
+        # #Build Explanation
+            self.SHAPEXPL = explainer(bb_classifier, X)
         self.metrics = None
         self.shap_avg_jaccard_bin = self.shap_std_jaccard_bin = None
 
 
-    def explain_instance(self, instance, num_reps=50, num_features=4, 
+    def explain_instance(self, instance, num_reps=50, num_features=5, 
                          neighborhood_samples=10000, use_cov_matrix=False, 
                          verbose=False, figure_dir=None, plot = False):
         npEX = np.array(self.EX)
@@ -251,21 +244,14 @@ class LEAF:
             R.rnum, R.prob_x0 = rnum, prob_x0
           
 
-            # Explain x0 using SHAP    
-            if self.explainer == 'KernelExplainer':
-                 shap_phi = self.SHAPEXPL.shap_values(x0, l1_reg="num_features(10)")
-                 
-                    
-            elif self.explainer == "TreeExplainer":
-                shap_phi = self.SHAPEXPL.shap_values(x0)
-            
-            elif self.explainer == "LinearExplainer":
-                shap_phi = [np.array(self.SHAPEXPL.shap_values(x0))]
-                
-                
-          
-            shap_phi0 = self.SHAPEXPL.expected_value
-            
+            # Explain x0 using SHAP  
+            explanation = self.SHAPEXPL(x0, check_additivity = False)
+            if len(explanation.values.shape) >= 3:
+                shap_phi = explanation.values[...,1]
+                shap_phi0 = explanation.base_values[...,1][0]
+            else:
+                shap_phi =  explanation.values
+                shap_phi0 = explanation.base_values[0]
 
             # Take only the top @num_features from shap_phi
             argtop = np.argsort(np.abs(shap_phi[0]))
@@ -319,82 +305,6 @@ class LEAF:
 
         # store the metrics for later use
         self.metrics = rows
-        if plot:
-            def leaf_plot(stability, method):
-                fig, ax1 = plt.subplots(figsize=(6, 2.2))
-                data = [ stability.flatten(),
-                         1 - rows[method + '_local_discr'], 
-                         rows[method + '_fidelity_f1'], 
-                         # rows[method + '_prescriptivity_f1'],
-                         # rows[method + '_bal_prescriptivity' ],
-                         1 - 2 * np.abs(rows[method + '_boundary_discr' ]) ]
-
-
-                # color = 'tab:red'
-                ax1.tick_params(axis='both', which='major', labelsize=12)
-                ax1.set_xlabel('distribution')
-                ax1.set_ylabel('LEAF metrics', color='black', fontsize=15)
-                ax1.boxplot(data, vert=False, widths=0.7)
-                ax1.tick_params(axis='y', labelcolor='#500000')
-                ax1.set_yticks(np.arange(1, len(data)+1))
-                ax1.set_yticklabels(['Stability', 'Local Concordance', 'Fidelity', 'Prescriptivity'])
-                ax1.set_xlim([-0.05,1.05])
-                ax1.invert_yaxis()
-
-                ax2 = ax1.twinx()  # instantiate a second axes that shares the same x-axis
-                ax2.tick_params(axis='both', which='major', labelsize=12)
-                ax2.set_ylabel('Values', color='#000080')  # we already handled the x-label with ax1
-                ax2.boxplot(data, vert=False, widths=0.7)
-                # ax2.boxplot([np.mean(d) for d in data], color=color)
-                ax2.tick_params(axis='y', labelcolor='#000080')
-                ax2.set_yticks(np.arange(1, len(data)+1))
-                ax2.set_yticklabels([ "  %.3f ± %.3f  " % (np.mean(d), np.std(d)) for d in data])
-                ax2.invert_yaxis()
-
-                fig.tight_layout()  # otherwise the right y-label is slightly clipped
-                if figure_dir is not None:
-                    imgname = figure_dir+method+"_leaf.pdf"
-                    print('Saving', imgname)
-                    plt.savefig(imgname, dpi=150, bbox_inches='tight')
-                plt.show()
-
-            # Show SHAP explanation
-            display(HTML("<h2>SHAP</h2>"))
-            display(shap.force_plot(shap_phi0[label_x0], shap_phi[label_x0], x0))
-            leaf_plot(shap_jaccard_mat, 'shap')
-
-        prescription = False
-        if prescription:
-            print("====================================================")
-            shap_x1, shap_sx1 = ES
-
-            print('SHAP accuracy %f balanced_accuracy %f precision %f recall %f' % 
-                  (rows.shap_prescriptivity.mean(), rows.shap_bal_prescriptivity.mean(),
-                   rows.shap_precision_x1.mean(), rows.shap_recall_x1.mean()))
-
-
-            shap_diff = (rows.iloc[-1].shap_g.coef_ != 0) * (shap_x1 - x0)
-
-            print('shap_diff\n', shap_diff)
-
-
-            shap_output_x1 = cls_proba([shap_x1])[0]
-            shap_label_x1 = 1 if shap_output_x1[1] >= shap_output_x1[0] else 0
-
-            print("SHAP(x1) prob =", shap_output_x1)
-
-            # df = pd.DataFrame([x0, x0 + shap_diff], index=['x', 'x\'']).round(2)
-            # display(df.T.iloc[:math.ceil(F/2),:])
-            # display(df.T.iloc[math.ceil(F/2):,:])
-
-
-            # Show SHAP explanation
-            shap_phi = SHAPEXPL.shap_values(shap_x1, l1_reg="num_features(10)")
-            shap_phi0 = SHAPEXPL.expected_value
-            argtop = np.argsort(np.abs(shap_phi[0]))
-            for k in range(len(shap_phi)):
-                shap_phi[k][ argtop[:(F-num_features)] ] = 0
-            display(shap.force_plot(shap_phi0[shap_label_x1], shap_phi[shap_label_x1], shap_x1))
 
     def get_R(self):
         return self.metrics
